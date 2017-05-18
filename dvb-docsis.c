@@ -179,10 +179,25 @@ void stdin_read(struct bufferevent *bev, void *ctx) {
         .num = ARRAY_SIZE(props),
         .props = props,
     };
+    enum fe_status status;
     static int v5 = 1;
 
     struct evbuffer *in_buf = bufferevent_get_input(bev);
     evbuffer_drain(in_buf, evbuffer_get_length(in_buf));
+
+    printf(">> Frontend: ");
+    if (ioctl(frontend_fd, FE_READ_STATUS, &status) == -1) {
+        perror("!! Error");
+        goto out_err;
+    }
+
+    printf("0x%x (", status);
+    if (status & FE_HAS_SIGNAL) printf(" FE_HAS_SIGNAL ");
+    if (status & FE_HAS_CARRIER) printf(" FE_HAS_CARRIER ");
+    if (status & FE_HAS_VITERBI) printf(" FE_HAS_VITERBI ");
+    if (status & FE_HAS_SYNC) printf(" FE_HAS_SYNC ");
+    if (status & FE_HAS_LOCK) printf(" FE_HAS_LOCK ");
+    printf(")\n");
 
     if (v5) {
         if (frontend_fd == -1 || ioctl(frontend_fd, FE_GET_PROPERTY, &dp) == -1) {
@@ -604,7 +619,6 @@ out:
 // Check frontend capabilities and tune it to a specific frequency using a modulation scheme and standard
 int init_frontend(const unsigned int adapter, const enum fe_delivery_system standard, const uint32_t frequency, const enum fe_modulation modulation) {
     int ret = 0;
-    enum fe_status status;
     char frontend[PATH_MAX];
     struct dvb_frontend_info dfi;
     struct dtv_property props[] = {
@@ -662,34 +676,7 @@ int init_frontend(const unsigned int adapter, const enum fe_delivery_system stan
         goto out_err;
     }
 
-    do {
-        printf(">> Frontend: Waiting for lock ... ");
-
-        if (ioctl(frontend_fd, FE_READ_STATUS, &status) == -1) {
-            perror("!! Error");
-            ret = -1;
-            goto out_err;
-        }
-
-        printf("0x%x (", status);
-        if (status & FE_HAS_SIGNAL) printf(" FE_HAS_SIGNAL ");
-        if (status & FE_HAS_CARRIER) printf(" FE_HAS_CARRIER ");
-        if (status & FE_HAS_VITERBI) printf(" FE_HAS_VITERBI ");
-        if (status & FE_HAS_SYNC) printf(" FE_HAS_SYNC ");
-        if (status & FE_HAS_LOCK) printf(" FE_HAS_LOCK ");
-        printf(")\n");
-        fflush(stdout);
-        sleep(1);
-    } while (loop && !(status & FE_HAS_LOCK));
-
-    if (status & FE_HAS_LOCK) {
-        printf("... Success!\n");
-    } else {
-        ret = -1;
-    }
-
     goto out;
-
 out_err:
     cleanup_frontend();
 out:
