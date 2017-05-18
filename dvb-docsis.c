@@ -697,7 +697,7 @@ out:
 }
 
 int print_usage(char* argv0) {
-    printf("Usage: %s [-a <adapter = 0>] [-d <delivery = DVB-C-B (DVB-C-B|DVB-C-A|ATSC)] [-h <bind address = ::0>] [-l <port = ] [-m <modulation = QAM256 (QAM64|QAM256|QPSK|VSB8)>] [-p <demux filter = 0x1ffe>] [-s <stream type = pcap (raw|pcap)>] [-z <frequency = 591000000 Hz>]\n", argv0);
+    printf("Usage: %s [-a <adapter = 0>] [-d <delivery = DVB-C-B (DVB-C-B|DVB-C-A|ATSC)] [-h <bind address = ::0>] [-l <port = %d>] [-m <modulation = QAM256 (QAM64|QAM256|QPSK|VSB8)>] [-p <demux filter = 0x1ffe>] [-s <stream type = pcap (raw|pcap)>] [-z <frequency = 591000000 Hz>]\n", argv0, DEFAULT_LISTEN_PORT);
     return -1;
 }
 
