@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <inttypes.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -30,7 +31,7 @@
 // libevent structures
 struct evconnlistener *ev_socket = NULL;
 struct event *ev_demux = NULL;
-struct bufferevent *ev_stats = NULL;
+struct event *ev_stats = NULL;
 struct event_base *events = NULL;
 
 char clients_ip[MAX_CLIENTS][INET6_ADDRSTRLEN] = { { 0 } };
@@ -68,7 +69,7 @@ void cleanup_event() {
     }
 
     if (ev_stats) {
-        bufferevent_free(ev_stats);
+        event_free(ev_stats);
         ev_stats = NULL;
     }
 
@@ -164,7 +165,7 @@ void print_stat(const char *str, const struct dtv_fe_stats *stat) {
 }
 
 // Print out statistics on the frontend using the libevent API
-void stdin_read(struct bufferevent *bev, void *ctx) {
+void frontend_stats(int fd, short event, void *arg) {
     struct dtv_property props[] = {
         { .cmd = DTV_STAT_SIGNAL_STRENGTH },
         { .cmd = DTV_STAT_CNR },
@@ -181,9 +182,6 @@ void stdin_read(struct bufferevent *bev, void *ctx) {
     };
     enum fe_status status;
     static int v5 = 1;
-
-    struct evbuffer *in_buf = bufferevent_get_input(bev);
-    evbuffer_drain(in_buf, evbuffer_get_length(in_buf));
 
     printf(">> Frontend: ");
     if (ioctl(frontend_fd, FE_READ_STATUS, &status) == -1) {
@@ -269,7 +267,7 @@ cont:
     return;
 
 out_err:
-    bufferevent_disable(ev_stats, EV_READ);
+    event_del(ev_stats);
 }
 
 // Handle socket errors on the network clients using the libevent API
@@ -456,6 +454,7 @@ void demux_read_raw(struct evbuffer *in_buf) {
 
 // Handle reads on the demux and wrap it into a evbuffer. Can't use evbuffer_read(), because it will limit the maximum read amount to EVBUFFER_MAX_READ, which isn't enough to avoid EOVERFLOW.
 void demux_read(evutil_socket_t fd, short event, void *arg) {
+    static bool warning = false;
     struct evbuffer *in = (struct evbuffer *) arg;
     struct evbuffer_iovec iovec[MAX_READ_IOVEC];
     int read_len, actual_len, n;
@@ -469,7 +468,10 @@ void demux_read(evutil_socket_t fd, short event, void *arg) {
     // Get amount of data available, otherwise fall back to fixed read amount
     if (ioctl(fd, FIONREAD, &read_len) == -1) {
         if (errno == EINVAL) {
-            fprintf(stderr, "!! Warning: Falling back to default read size of %d!\n", MAX_READ_FALLBACK);
+            if (!warning) {
+                fprintf(stderr, "!! Warning: Falling back to default read size of %d!\n", MAX_READ_FALLBACK);
+                warning = true;
+            }
             read_len = MAX_READ_FALLBACK;
         } else if (errno == EOVERFLOW) {
             fprintf(stderr, "!! Error: Kernel ringbuffer has overflowed!\n");
@@ -546,12 +548,12 @@ int init_event(const struct in6_addr *host, const uint32_t port) {
     }
 
     // Add the statistics printout
-    if (ev_stats || !(ev_stats = bufferevent_socket_new(events, STDIN_FILENO, 0))) {
+    struct timeval second = { .tv_sec = 1, .tv_usec = 0 };
+    if (ev_stats || !(ev_stats = event_new(events, -1, EV_PERSIST, frontend_stats, 0))) {
         ret = -1;
         goto out_err;
     }
-    bufferevent_setcb(ev_stats, stdin_read, NULL, NULL, NULL);
-    bufferevent_enable(ev_stats, EV_READ);
+    event_add(ev_stats, &second);
 
     // Add the socket listener
     if (ev_socket || !(ev_socket = evconnlistener_new_bind(events, socket_accept, NULL, LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1, (struct sockaddr *) &sin, sizeof(sin)))) {
